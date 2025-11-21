@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseClient";
+import { generateAutoResponse } from "@/lib/autoResponder";
 
 // Type definition for WhatsApp webhook payload
 type WhatsAppWebhookPayload = {
@@ -76,6 +77,29 @@ export async function POST(req: Request) {
         }
 
         console.log("Message stored successfully:", data);
+
+        // Trigger auto-response if it's a user message
+        const messageText = payload.content?.text || payload.UserResponse;
+        if (messageText && payload.event === "MoMessage") {
+            console.log("Triggering auto-response for message:", payload.messageId);
+
+            // Generate response asynchronously (don't wait for it)
+            generateAutoResponse(payload.from, messageText, payload.messageId)
+                .then((result) => {
+                    if (result.success) {
+                        console.log("Auto-response generated:", result.response?.substring(0, 100));
+                        // Here you would send the response back via WhatsApp API
+                        // For now, we just log it
+                    } else if (result.noDocuments) {
+                        console.log("No documents mapped for this number");
+                    } else {
+                        console.error("Auto-response failed:", result.error);
+                    }
+                })
+                .catch((err) => {
+                    console.error("Auto-response error:", err);
+                });
+        }
 
         return NextResponse.json({
             success: true,

@@ -12,6 +12,7 @@ export async function POST(req: Request) {
     try {
         const form = await req.formData();
         const file = form.get("file") as File | null;
+        const phoneNumbers = form.get("phone_numbers") as string | null;
 
         if (!file) {
             return NextResponse.json({ error: "No PDF uploaded" }, { status: 400 });
@@ -19,6 +20,11 @@ export async function POST(req: Request) {
 
         const buffer = await file.arrayBuffer();
         const pdfName = file.name;
+
+        // Parse phone numbers (comma-separated)
+        const phoneNumberList = phoneNumbers
+            ? phoneNumbers.split(",").map(num => num.trim()).filter(Boolean)
+            : [];
 
         // 1) Create file record
         const { data: fileRow, error: fileError } = await supabase
@@ -96,10 +102,28 @@ export async function POST(req: Request) {
             throw insertError;
         }
 
+        // 5) Map phone numbers to this document
+        if (phoneNumberList.length > 0) {
+            const mappingRows = phoneNumberList.map(phoneNumber => ({
+                phone_number: phoneNumber,
+                file_id: fileId,
+            }));
+
+            const { error: mappingError } = await supabase
+                .from("phone_document_mapping")
+                .insert(mappingRows);
+
+            if (mappingError) {
+                console.error("Phone mapping error:", mappingError);
+                // Don't fail the whole request if mapping fails
+            }
+        }
+
         return NextResponse.json({
             message: "PDF processed successfully",
             file_id: fileId,
             chunks: chunks.length,
+            phone_numbers_mapped: phoneNumberList.length,
         });
     } catch (err: unknown) {
         console.error("PROCESS_PDF_ERROR:", err);
