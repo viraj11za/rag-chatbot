@@ -35,9 +35,15 @@ GROQ_API_KEY=your_groq_api_key_here
 NEXT_PUBLIC_SUPABASE_URL=https://your-supabase-project-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 WHATSAPP_VERIFY_TOKEN=your_webhook_verification_token_here
+
+# WhatsApp Sending (11za.in API)
+WHATSAPP_11ZA_AUTH_TOKEN=your_11za_auth_token
+WHATSAPP_11ZA_ORIGIN=https://www.displ.in/
 ```
 
 Do not commit secrets. Use `.env.example` as a template.
+
+**📱 WhatsApp Sending:** See [WHATSAPP_SENDING_SETUP.md](WHATSAPP_SENDING_SETUP.md) for complete setup instructions.
 
 ## Database Setup
 

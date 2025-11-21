@@ -83,21 +83,22 @@ export async function POST(req: Request) {
         if (messageText && payload.event === "MoMessage") {
             console.log("Triggering auto-response for message:", payload.messageId);
 
-            // Generate response asynchronously (don't wait for it)
+            // Generate and send response asynchronously (don't wait for it)
             generateAutoResponse(payload.from, messageText, payload.messageId)
                 .then((result) => {
-                    if (result.success) {
-                        console.log("Auto-response generated:", result.response?.substring(0, 100));
-                        // Here you would send the response back via WhatsApp API
-                        // For now, we just log it
+                    if (result.success && result.sent) {
+                        console.log("✅ Auto-response sent successfully to", payload.from);
+                        console.log("Response preview:", result.response?.substring(0, 100));
+                    } else if (result.success && !result.sent) {
+                        console.log("⚠️ Response generated but not sent:", result.error);
                     } else if (result.noDocuments) {
-                        console.log("No documents mapped for this number");
+                        console.log("ℹ️ No documents mapped for phone number:", payload.from);
                     } else {
-                        console.error("Auto-response failed:", result.error);
+                        console.error("❌ Auto-response failed:", result.error);
                     }
                 })
                 .catch((err) => {
-                    console.error("Auto-response error:", err);
+                    console.error("❌ Auto-response error:", err);
                 });
         }
 

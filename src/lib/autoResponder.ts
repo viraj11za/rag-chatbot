@@ -2,6 +2,7 @@ import { supabase } from "./supabaseClient";
 import { embedText } from "./embeddings";
 import { retrieveRelevantChunksFromFiles } from "./retrieval";
 import { getFilesForPhoneNumber } from "./phoneMapping";
+import { sendWhatsAppMessage } from "./whatsappSender";
 import Groq from "groq-sdk";
 
 const groq = new Groq({
@@ -13,6 +14,7 @@ export type AutoResponseResult = {
     response?: string;
     error?: string;
     noDocuments?: boolean;
+    sent?: boolean; // Whether message was sent via WhatsApp
 };
 
 /**
@@ -113,7 +115,29 @@ export async function generateAutoResponse(
             };
         }
 
-        // 6. Mark the message as responded in database
+        // 6. Send the response via WhatsApp
+        const sendResult = await sendWhatsAppMessage(fromNumber, response);
+
+        if (!sendResult.success) {
+            console.error("Failed to send WhatsApp message:", sendResult.error);
+            // Still mark as attempted in database
+            await supabase
+                .from("whatsapp_messages")
+                .update({
+                    auto_respond_sent: false,
+                    response_sent_at: new Date().toISOString(),
+                })
+                .eq("message_id", messageId);
+
+            return {
+                success: false,
+                response,
+                sent: false,
+                error: `Generated response but failed to send: ${sendResult.error}`,
+            };
+        }
+
+        // 7. Mark the message as responded in database
         await supabase
             .from("whatsapp_messages")
             .update({
@@ -122,9 +146,12 @@ export async function generateAutoResponse(
             })
             .eq("message_id", messageId);
 
+        console.log(`✅ Auto-response sent successfully to ${fromNumber}`);
+
         return {
             success: true,
             response,
+            sent: true,
         };
     } catch (error) {
         console.error("Auto-response error:", error);
