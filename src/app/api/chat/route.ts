@@ -67,16 +67,38 @@ export async function POST(req: Request) {
             { role: "user", content: message }
         ];
 
-        // 5. Call Groq
+        // 5. Call Groq with streaming
         const completion = await groq.chat.completions.create({
             model: "llama-3.3-70b-versatile",
             messages,
-            temperature: 0.2
+            temperature: 0.2,
+            stream: true
         });
 
-        const reply = completion.choices[0].message.content;
+        // Create a streaming response
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+            async start(controller) {
+                try {
+                    for await (const chunk of completion) {
+                        const content = chunk.choices[0]?.delta?.content || "";
+                        if (content) {
+                            controller.enqueue(encoder.encode(content));
+                        }
+                    }
+                    controller.close();
+                } catch (error) {
+                    controller.error(error);
+                }
+            }
+        });
 
-        return NextResponse.json({ reply });
+        return new Response(stream, {
+            headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Transfer-Encoding': 'chunked'
+            }
+        });
     } catch (err: unknown) {
         console.error("CHAT_ERROR:", err);
         const message = err instanceof Error ? err.message : "Unknown error";

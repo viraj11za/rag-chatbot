@@ -22,6 +22,7 @@ export default function ChatPage() {
     const [input, setInput] = useState("");
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [isSending, setIsSending] = useState(false);
+    const [isThinking, setIsThinking] = useState(false);
     const bottomRef = useRef<HTMLDivElement | null>(null);
 
     const [files, setFiles] = useState<FileItem[]>([]);
@@ -123,7 +124,10 @@ export default function ChatPage() {
                 }),
             });
 
-            // Call chat API
+            // Show thinking indicator
+            setIsThinking(true);
+
+            // Call chat API with streaming
             const res = await fetch("/api/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -134,10 +138,10 @@ export default function ChatPage() {
                 }),
             });
 
-            const data = await res.json();
-
             if (!res.ok) {
+                const data = await res.json();
                 console.error("Chat error:", data.error);
+                setIsThinking(false);
                 setMessages((prev) => [
                     ...prev,
                     {
@@ -148,10 +152,37 @@ export default function ChatPage() {
                 return;
             }
 
-            const aiMessage: ChatMessage = {
-                role: "assistant",
-                content: data.reply,
-            };
+            // Hide thinking indicator and add streaming message
+            setIsThinking(false);
+
+            // Add an empty AI message that we'll update as we stream
+            const aiMessageIndex = messages.length + 1;
+            setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+            // Handle streaming response
+            const reader = res.body?.getReader();
+            const decoder = new TextDecoder();
+            let fullReply = "";
+
+            if (reader) {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    fullReply += chunk;
+
+                    // Update the AI message with accumulated content
+                    setMessages((prev) => {
+                        const updated = [...prev];
+                        updated[aiMessageIndex] = {
+                            role: "assistant",
+                            content: fullReply,
+                        };
+                        return updated;
+                    });
+                }
+            }
 
             // Save AI message
             await fetch("/api/save-message", {
@@ -160,13 +191,12 @@ export default function ChatPage() {
                 body: JSON.stringify({
                     session_id: sessionId,
                     role: "assistant",
-                    content: data.reply,
+                    content: fullReply,
                 }),
             });
-
-            setMessages((prev) => [...prev, aiMessage]);
         } catch (err) {
             console.error("sendMessage error", err);
+            setIsThinking(false);
             setMessages((prev) => [
                 ...prev,
                 {
@@ -238,6 +268,19 @@ export default function ChatPage() {
                                 </div>
                             </div>
                         ))}
+                        {isThinking && (
+                            <div className="mb-4">
+                                <strong className="text-sm font-semibold">AI</strong>
+                                <div className="mt-1 flex items-center gap-2 text-gray-500">
+                                    <div className="flex gap-1">
+                                        <span className="animate-bounce inline-block w-2 h-2 bg-gray-400 rounded-full" style={{ animationDelay: '0ms' }}></span>
+                                        <span className="animate-bounce inline-block w-2 h-2 bg-gray-400 rounded-full" style={{ animationDelay: '150ms' }}></span>
+                                        <span className="animate-bounce inline-block w-2 h-2 bg-gray-400 rounded-full" style={{ animationDelay: '300ms' }}></span>
+                                    </div>
+                                    <span className="text-sm">Thinking...</span>
+                                </div>
+                            </div>
+                        )}
                         <div ref={bottomRef} />
                     </ScrollArea>
 
