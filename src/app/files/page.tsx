@@ -19,6 +19,8 @@ export default function FilesPage() {
     const [files, setFiles] = useState<FileItem[]>([]);
     const [uploading, setUploading] = useState(false);
     const [phoneNumbers, setPhoneNumbers] = useState("");
+    const [authToken, setAuthToken] = useState("");
+    const [origin, setOrigin] = useState("");
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [editingFileId, setEditingFileId] = useState<string | null>(null);
     const [fileMappings, setFileMappings] = useState<Record<string, PhoneMapping[]>>({});
@@ -48,8 +50,17 @@ export default function FilesPage() {
             return;
         }
 
+        if (!authToken.trim() || !origin.trim()) {
+            alert("Please provide both 11za Auth Token and Origin");
+            return;
+        }
+
         const form = new FormData();
         form.append("file", selectedFile);
+
+        // Add 11za credentials
+        form.append("auth_token", authToken.trim());
+        form.append("origin", origin.trim());
 
         // Add phone numbers if provided
         if (phoneNumbers.trim()) {
@@ -72,6 +83,8 @@ export default function FilesPage() {
             // Reset form
             setSelectedFile(null);
             setPhoneNumbers("");
+            setAuthToken("");
+            setOrigin("");
 
             // Reset file input
             const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
@@ -176,6 +189,38 @@ export default function FilesPage() {
                                 Selected: {selectedFile.name}
                             </p>
                         )}
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium mb-2">
+                            11za Auth Token <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                            type="text"
+                            value={authToken}
+                            onChange={(e) => setAuthToken(e.target.value)}
+                            placeholder="Your 11za authentication token"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">
+                            Required: 11za WhatsApp API authentication token
+                        </p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium mb-2">
+                            11za Origin <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                            type="text"
+                            value={origin}
+                            onChange={(e) => setOrigin(e.target.value)}
+                            placeholder="https://example.com/"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">
+                            Required: Origin website URL for 11za API
+                        </p>
                     </div>
 
                     <div>

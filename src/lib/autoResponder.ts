@@ -40,6 +40,33 @@ export async function generateAutoResponse(
 
         console.log(`Found ${fileIds.length} document(s) for ${fromNumber}`);
 
+        // 1.5. Fetch file details including 11za credentials
+        // We'll use the first file's credentials for sending messages
+        const { data: fileData, error: fileError } = await supabase
+            .from("rag_files")
+            .select("auth_token, origin")
+            .in("id", fileIds)
+            .limit(1)
+            .single();
+
+        if (fileError || !fileData) {
+            console.error("Error fetching file credentials:", fileError);
+            return {
+                success: false,
+                error: "Failed to fetch file credentials",
+            };
+        }
+
+        const { auth_token, origin } = fileData;
+
+        if (!auth_token || !origin) {
+            console.error("File missing 11za credentials");
+            return {
+                success: false,
+                error: "File is missing WhatsApp API credentials",
+            };
+        }
+
         // 2. Embed the user query
         const queryEmbedding = await embedText(messageText);
 
@@ -115,8 +142,8 @@ export async function generateAutoResponse(
             };
         }
 
-        // 6. Send the response via WhatsApp
-        const sendResult = await sendWhatsAppMessage(fromNumber, response);
+        // 6. Send the response via WhatsApp using file-specific credentials
+        const sendResult = await sendWhatsAppMessage(fromNumber, response, auth_token, origin);
 
         if (!sendResult.success) {
             console.error("Failed to send WhatsApp message:", sendResult.error);

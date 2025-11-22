@@ -13,9 +13,17 @@ export async function POST(req: Request) {
         const form = await req.formData();
         const file = form.get("file") as File | null;
         const phoneNumbers = form.get("phone_numbers") as string | null;
+        const authToken = form.get("auth_token") as string | null;
+        const origin = form.get("origin") as string | null;
 
         if (!file) {
             return NextResponse.json({ error: "No PDF uploaded" }, { status: 400 });
+        }
+
+        if (!authToken || !origin) {
+            return NextResponse.json({
+                error: "11za auth_token and origin are required"
+            }, { status: 400 });
         }
 
         const buffer = await file.arrayBuffer();
@@ -26,10 +34,14 @@ export async function POST(req: Request) {
             ? phoneNumbers.split(",").map(num => num.trim()).filter(Boolean)
             : [];
 
-        // 1) Create file record
+        // 1) Create file record with 11za credentials
         const { data: fileRow, error: fileError } = await supabase
             .from("rag_files")
-            .insert({ name: pdfName })
+            .insert({
+                name: pdfName,
+                auth_token: authToken,
+                origin: origin,
+            })
             .select()
             .single();
 

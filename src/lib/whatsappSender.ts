@@ -15,17 +15,16 @@ export type SendMessageResult = {
  */
 export async function sendWhatsAppMessage(
     phoneNumber: string,
-    message: string
+    message: string,
+    authToken: string,
+    originWebsite: string
 ): Promise<SendMessageResult> {
     try {
-        const authToken = process.env.WHATSAPP_11ZA_AUTH_TOKEN;
-        const originWebsite = process.env.WHATSAPP_11ZA_ORIGIN || "https://medistudygo.com/";
-
-        if (!authToken) {
-            console.error("WHATSAPP_11ZA_AUTH_TOKEN not configured");
+        if (!authToken || !originWebsite) {
+            console.error("11za auth token and origin are required");
             return {
                 success: false,
-                error: "WhatsApp API credentials not configured",
+                error: "WhatsApp API credentials not provided",
             };
         }
 
@@ -82,16 +81,15 @@ export async function sendWhatsAppTemplate(
     templateData: {
         templateId: string;
         parameters?: Record<string, string>;
-    }
+    },
+    authToken: string,
+    originWebsite: string
 ): Promise<SendMessageResult> {
     try {
-        const authToken = process.env.WHATSAPP_11ZA_AUTH_TOKEN;
-        const originWebsite = process.env.WHATSAPP_11ZA_ORIGIN || "https://medistudygo.com/";
-
-        if (!authToken) {
+        if (!authToken || !originWebsite) {
             return {
                 success: false,
-                error: "WhatsApp API credentials not configured",
+                error: "WhatsApp API credentials not provided",
             };
         }
 
