@@ -225,17 +225,17 @@ export default function FilesPage() {
 
                     <div>
                         <label className="block text-sm font-medium mb-2">
-                            Phone Numbers (optional)
+                            WhatsApp Business Numbers (optional)
                         </label>
                         <input
                             type="text"
                             value={phoneNumbers}
                             onChange={(e) => setPhoneNumbers(e.target.value)}
-                            placeholder="917874949091, 919876543210"
+                            placeholder="15558346206"
                             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                         <p className="mt-1 text-xs text-gray-500">
-                            Enter phone numbers separated by commas (with country code, no spaces or symbols)
+                            Enter WhatsApp Business numbers (TO numbers) separated by commas. These are the numbers that will receive messages and use these credentials to respond.
                         </p>
                     </div>
 
@@ -281,7 +281,7 @@ export default function FilesPage() {
 
                             {isEditing && (
                                 <div className="border-t p-4 bg-gray-50">
-                                    <h3 className="font-medium text-sm mb-3">Phone Number Mappings</h3>
+                                    <h3 className="font-medium text-sm mb-3">WhatsApp Business Number Mappings</h3>
 
                                     {mappings.length > 0 ? (
                                         <ul className="space-y-2 mb-4">
@@ -301,7 +301,7 @@ export default function FilesPage() {
                                             ))}
                                         </ul>
                                     ) : (
-                                        <p className="text-sm text-gray-500 mb-4">No phone numbers mapped yet.</p>
+                                        <p className="text-sm text-gray-500 mb-4">No business numbers mapped yet.</p>
                                     )}
 
                                     <div className="flex gap-2">
@@ -309,7 +309,7 @@ export default function FilesPage() {
                                             type="text"
                                             value={newPhoneNumber}
                                             onChange={(e) => setNewPhoneNumber(e.target.value)}
-                                            placeholder="917874949091"
+                                            placeholder="15558346206"
                                             className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         />
                                         <button

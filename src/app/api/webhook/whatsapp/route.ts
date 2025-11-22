@@ -84,8 +84,10 @@ export async function POST(req: Request) {
             console.log("Processing auto-response for message:", payload.messageId);
 
             // Process directly - await the full response
+            // Use payload.to (the business number) to look up the correct file/credentials
             const result = await generateAutoResponse(
                 payload.from,
+                payload.to,
                 messageText,
                 payload.messageId
             );

@@ -8,17 +8,18 @@ import { generateAutoResponse } from "@/lib/autoResponder";
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { phone_number, message, message_id } = body;
+        const { from_number, to_number, message, message_id } = body;
 
-        if (!phone_number || !message) {
+        if (!from_number || !to_number || !message) {
             return NextResponse.json(
-                { error: "phone_number and message are required" },
+                { error: "from_number, to_number, and message are required" },
                 { status: 400 }
             );
         }
 
         const result = await generateAutoResponse(
-            phone_number,
+            from_number,
+            to_number,
             message,
             message_id || `manual-${Date.now()}`
         );

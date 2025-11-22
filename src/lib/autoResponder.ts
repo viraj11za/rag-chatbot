@@ -19,26 +19,31 @@ export type AutoResponseResult = {
 
 /**
  * Generate an automatic response for a WhatsApp message
+ * @param fromNumber - The sender's phone number (who sent the message)
+ * @param toNumber - The business WhatsApp number (where message was received)
+ * @param messageText - The text of the message
+ * @param messageId - The unique message ID
  */
 export async function generateAutoResponse(
     fromNumber: string,
+    toNumber: string,
     messageText: string,
     messageId: string
 ): Promise<AutoResponseResult> {
     try {
-        // 1. Get all documents mapped to this phone number
-        const fileIds = await getFilesForPhoneNumber(fromNumber);
+        // 1. Get all documents mapped to this 'to' number (business number)
+        const fileIds = await getFilesForPhoneNumber(toNumber);
 
         if (fileIds.length === 0) {
-            console.log(`No documents mapped for phone number: ${fromNumber}`);
+            console.log(`No documents mapped for business number: ${toNumber}`);
             return {
                 success: false,
                 noDocuments: true,
-                error: "No documents mapped to this phone number",
+                error: "No documents mapped to this business number",
             };
         }
 
-        console.log(`Found ${fileIds.length} document(s) for ${fromNumber}`);
+        console.log(`Found ${fileIds.length} document(s) for business number ${toNumber}`);
 
         // 1.5. Fetch file details including 11za credentials
         // We'll use the first file's credentials for sending messages
