@@ -101,16 +101,16 @@ export async function generateAutoResponse(
         // 4. Get conversation history for this phone number
         const { data: historyRows } = await supabase
             .from("whatsapp_messages")
-            .select("content_text, event_type")
-            .eq("from_number", fromNumber)
+            .select("content_text, event_type, from_number, to_number")
+            .or(`from_number.eq.${fromNumber},to_number.eq.${fromNumber}`) // Messages involving this user
             .order("received_at", { ascending: true })
-            .limit(10); // Last 10 messages
+            .limit(20); // Last 20 messages for better context
 
-        // Build conversation history (only user messages)
+        // Build conversation history (user messages and AI responses)
         const history = (historyRows || [])
-            .filter(m => m.event_type === "MoMessage" && m.content_text)
+            .filter(m => m.content_text && (m.event_type === "MoMessage" || m.event_type === "MtMessage"))
             .map(m => ({
-                role: "user" as const,
+                role: m.event_type === "MoMessage" ? "user" as const : "assistant" as const,
                 content: m.content_text
             }));
 
@@ -133,7 +133,7 @@ export async function generateAutoResponse(
                 role: "system" as const,
                 content: `${systemPrompt}\n\nCONTEXT:\n${contextText || "No relevant context found in the documents."}`
             },
-            ...history.slice(-5), // Include last 5 messages for context
+            ...history.slice(-10), // Include last 10 messages (5 pairs) for context
             { role: "user" as const, content: messageText }
         ];
 
@@ -174,6 +174,35 @@ export async function generateAutoResponse(
                 error: `Generated response but failed to send: ${sendResult.error}`,
             };
         }
+
+        // 6.5. Store the AI response in the database for conversation history
+        const responseMessageId = `auto_${messageId}_${Date.now()}`;
+        await supabase
+            .from("whatsapp_messages")
+            .insert([
+                {
+                    message_id: responseMessageId,
+                    channel: "whatsapp",
+                    from_number: toNumber, // Business number (sender)
+                    to_number: fromNumber, // Customer number (recipient)
+                    received_at: new Date().toISOString(),
+                    content_type: "text",
+                    content_text: response,
+                    sender_name: "AI Assistant",
+                    event_type: "MtMessage", // Mobile Terminated (outgoing)
+                    is_in_24_window: true,
+                    is_responded: false,
+                    raw_payload: {
+                        messageId: responseMessageId,
+                        channel: "whatsapp",
+                        from: toNumber,
+                        to: fromNumber,
+                        content: { contentType: "text", text: response },
+                        event: "MtMessage",
+                        isAutoResponse: true
+                    },
+                },
+            ]);
 
         // 7. Mark the message as responded in database
         await supabase
