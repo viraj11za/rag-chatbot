@@ -5,42 +5,123 @@ import { ChangeEvent, useCallback, useEffect, useState } from "react";
 type FileItem = {
     id: string;
     name: string;
+    file_type: string;
     chunk_count?: number;
-};
-
-type PhoneMapping = {
-    id: number;
-    phone_number: string;
-    file_id: string;
     created_at: string;
 };
 
-export default function FilesPage() {
-    const [files, setFiles] = useState<FileItem[]>([]);
-    const [uploading, setUploading] = useState(false);
-    const [phoneNumbers, setPhoneNumbers] = useState("");
-    const [authToken, setAuthToken] = useState("");
-    const [origin, setOrigin] = useState("");
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
-    const [editingFileId, setEditingFileId] = useState<string | null>(null);
-    const [fileMappings, setFileMappings] = useState<Record<string, PhoneMapping[]>>({});
-    const [newPhoneNumber, setNewPhoneNumber] = useState("");
+type PhoneNumberGroup = {
+    phone_number: string;
+    intent: string | null;
+    system_prompt: string | null;
+    files: FileItem[];
+    auth_token: string;
+    origin: string;
+};
 
-    const loadFiles = useCallback(async () => {
-        const res = await fetch("/api/files");
+export default function FilesPage() {
+    const [phoneGroups, setPhoneGroups] = useState<PhoneNumberGroup[]>([]);
+    const [uploading, setUploading] = useState(false);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [generatingPrompt, setGeneratingPrompt] = useState(false);
+
+    // Selected phone number in the left panel
+    const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<string | null>(null);
+
+    // Edit form state
+    const [editPhoneNumber, setEditPhoneNumber] = useState("");
+    const [editIntent, setEditIntent] = useState("");
+    const [editAuthToken, setEditAuthToken] = useState("");
+    const [editOrigin, setEditOrigin] = useState("");
+    const [editSystemPrompt, setEditSystemPrompt] = useState("");
+    const [isNewPhone, setIsNewPhone] = useState(false);
+    const [savingSettings, setSavingSettings] = useState(false);
+
+    const loadPhoneGroups = useCallback(async () => {
+        const res = await fetch("/api/phone-groups");
         const data = await res.json();
-        setFiles(data.files || []);
+        if (data.success) {
+            setPhoneGroups(data.groups || []);
+        }
     }, []);
 
     useEffect(() => {
-        // Initial load of files on mount
-        void loadFiles();
-    }, [loadFiles]);
+        void loadPhoneGroups();
+    }, [loadPhoneGroups]);
+
+    // When a phone number is selected, populate the edit form
+    useEffect(() => {
+        if (selectedPhoneNumber) {
+            const group = phoneGroups.find(g => g.phone_number === selectedPhoneNumber);
+            if (group) {
+                setEditPhoneNumber(group.phone_number);
+                setEditIntent(group.intent || "");
+                setEditAuthToken(group.auth_token || "");
+                setEditOrigin(group.origin || "");
+                setEditSystemPrompt(group.system_prompt || "");
+                setIsNewPhone(false);
+            }
+        }
+    }, [selectedPhoneNumber, phoneGroups]);
 
     function handleFileSelect(e: ChangeEvent<HTMLInputElement>) {
         const file = e.target.files?.[0];
         if (file) {
             setSelectedFile(file);
+        }
+    }
+
+    function handleNewPhone() {
+        setSelectedPhoneNumber(null);
+        setEditPhoneNumber("");
+        setEditIntent("");
+        setEditAuthToken("");
+        setEditOrigin("");
+        setEditSystemPrompt("");
+        setSelectedFile(null);
+        setIsNewPhone(true);
+    }
+
+    async function generateSystemPrompt() {
+        if (!editIntent.trim() || !editPhoneNumber.trim()) {
+            alert("Please provide both phone number and intent");
+            return;
+        }
+
+        setGeneratingPrompt(true);
+        try {
+            const res = await fetch("/api/generate-system-prompt", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    intent: editIntent.trim(),
+                    phone_number: editPhoneNumber.trim(),
+                }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.error || "Failed to generate system prompt");
+            }
+
+            // Update the displayed system prompt immediately
+            setEditSystemPrompt(data.system_prompt);
+            setEditIntent(data.intent);
+
+            alert("System prompt generated and saved successfully!");
+            await loadPhoneGroups();
+
+            // If this was a new phone, select it
+            if (isNewPhone) {
+                setSelectedPhoneNumber(editPhoneNumber.trim());
+                setIsNewPhone(false);
+            }
+        } catch (err) {
+            console.error("Error generating system prompt:", err);
+            alert(err instanceof Error ? err.message : "Failed to generate system prompt");
+        } finally {
+            setGeneratingPrompt(false);
         }
     }
 
@@ -50,303 +131,404 @@ export default function FilesPage() {
             return;
         }
 
-        if (!authToken.trim() || !origin.trim()) {
+        if (!editPhoneNumber.trim()) {
+            alert("Please provide a phone number");
+            return;
+        }
+
+        if (!editAuthToken.trim() || !editOrigin.trim()) {
             alert("Please provide both 11za Auth Token and Origin");
             return;
         }
 
         const form = new FormData();
         form.append("file", selectedFile);
+        form.append("phone_number", editPhoneNumber.trim());
+        form.append("auth_token", editAuthToken.trim());
+        form.append("origin", editOrigin.trim());
 
-        // Add 11za credentials
-        form.append("auth_token", authToken.trim());
-        form.append("origin", origin.trim());
-
-        // Add phone numbers if provided
-        if (phoneNumbers.trim()) {
-            form.append("phone_numbers", phoneNumbers.trim());
+        if (editIntent.trim()) {
+            form.append("intent", editIntent.trim());
         }
 
         setUploading(true);
         try {
-            const res = await fetch("/api/process-pdf", { method: "POST", body: form });
+            const res = await fetch("/api/process-file", { method: "POST", body: form });
             const payload = await res.json();
 
             if (!res.ok) {
                 console.error("Upload failed:", payload?.error);
-                alert(payload?.error ?? "Failed to process PDF");
+                alert(payload?.error ?? "Failed to process file");
                 return;
             }
 
-            alert(`Success! ${payload.chunks} chunks processed${payload.phone_numbers_mapped ? `, mapped to ${payload.phone_numbers_mapped} phone number(s)` : ''}`);
+            alert(`Success! ${payload.chunks} chunks processed for ${payload.file_type} file`);
 
-            // Reset form
+            // Reset file input only
             setSelectedFile(null);
-            setPhoneNumbers("");
-            setAuthToken("");
-            setOrigin("");
-
-            // Reset file input
             const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
             if (fileInput) fileInput.value = "";
 
-            loadFiles();
+            await loadPhoneGroups();
+
+            // Select the phone number that was just uploaded to
+            setSelectedPhoneNumber(editPhoneNumber.trim());
+            setIsNewPhone(false);
         } finally {
             setUploading(false);
         }
     }
 
-    async function deleteFile(id: string) {
-        await fetch(`/api/files?id=${id}`, { method: "DELETE" });
-        loadFiles();
+    async function deleteFile(fileId: string) {
+        if (!confirm("Delete this file and all its chunks?")) return;
+
+        await fetch(`/api/files?id=${fileId}`, { method: "DELETE" });
+        await loadPhoneGroups();
     }
 
-    async function loadMappingsForFile(fileId: string) {
-        const res = await fetch(`/api/phone-mappings?file_id=${fileId}`);
-        const data = await res.json();
-        if (data.success) {
-            setFileMappings(prev => ({ ...prev, [fileId]: data.mappings }));
-        }
-    }
+    async function deletePhoneNumber(phoneNum: string) {
+        if (!confirm("Delete this phone number and all associated files?")) return;
 
-    async function toggleEditMappings(fileId: string) {
-        if (editingFileId === fileId) {
-            setEditingFileId(null);
-            setNewPhoneNumber("");
-        } else {
-            setEditingFileId(fileId);
-            setNewPhoneNumber("");
-            await loadMappingsForFile(fileId);
-        }
-    }
-
-    async function addPhoneMapping(fileId: string) {
-        if (!newPhoneNumber.trim()) {
-            alert("Please enter a phone number");
-            return;
-        }
-
-        const res = await fetch("/api/phone-mappings", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                phone_number: newPhoneNumber.trim(),
-                file_id: fileId,
-            }),
-        });
-
-        const data = await res.json();
-
-        if (res.ok) {
-            setNewPhoneNumber("");
-            await loadMappingsForFile(fileId);
-            alert("Phone number added successfully!");
-        } else {
-            alert(data.error || "Failed to add phone number");
-        }
-    }
-
-    async function deletePhoneMapping(mappingId: number, fileId: string) {
-        if (!confirm("Remove this phone number mapping?")) return;
-
-        const res = await fetch(`/api/phone-mappings?id=${mappingId}`, {
+        const res = await fetch(`/api/phone-mappings?phone_number=${phoneNum}`, {
             method: "DELETE",
         });
 
         if (res.ok) {
-            await loadMappingsForFile(fileId);
-            alert("Phone number removed successfully!");
+            alert("Phone number deleted successfully!");
+            setSelectedPhoneNumber(null);
+            setEditPhoneNumber("");
+            setEditIntent("");
+            setEditAuthToken("");
+            setEditOrigin("");
+            setEditSystemPrompt("");
+            await loadPhoneGroups();
         } else {
-            alert("Failed to remove phone number");
+            alert("Failed to delete phone number");
         }
     }
 
+    async function savePhoneSettings() {
+        if (!editPhoneNumber.trim()) {
+            alert("Phone number is required");
+            return;
+        }
+
+        setSavingSettings(true);
+        try {
+            const res = await fetch("/api/update-phone-settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    phone_number: editPhoneNumber.trim(),
+                    intent: editIntent.trim() || null,
+                    system_prompt: editSystemPrompt.trim() || null,
+                    auth_token: editAuthToken.trim() || null,
+                    origin: editOrigin.trim() || null,
+                }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                throw new Error(data.error || "Failed to save settings");
+            }
+
+            alert("Settings saved successfully!");
+            await loadPhoneGroups();
+        } catch (err) {
+            console.error("Error saving settings:", err);
+            alert(err instanceof Error ? err.message : "Failed to save settings");
+        } finally {
+            setSavingSettings(false);
+        }
+    }
+
+    const selectedGroup = phoneGroups.find(g => g.phone_number === selectedPhoneNumber);
+
     return (
-        <main className="p-6 max-w-4xl mx-auto">
-            <h1 className="text-2xl font-bold mb-4">Manage PDFs</h1>
-
-            {/* Webhook Instructions */}
-            <div className="border rounded-lg p-4 bg-blue-50 border-blue-200 mb-6">
-                <h3 className="text-sm font-semibold text-blue-900 mb-2">11za Webhook Configuration</h3>
-                <p className="text-xs text-blue-800 mb-2">
-                    Configure this webhook URL in your 11za WhatsApp settings:
-                </p>
-                <div className="flex items-center gap-2 bg-white p-2 rounded border border-blue-300">
-                    <code className="text-xs font-mono text-blue-900 flex-1">
-                        https://rag-chatbot-ochre.vercel.app/api/webhook/whatsapp
-                    </code>
+        <main className="flex h-screen">
+            {/* LEFT PANEL - Phone Numbers List */}
+            <div className="w-80 border-r bg-gray-50 overflow-y-auto">
+                <div className="p-4 border-b bg-white sticky top-0 z-10">
+                    <h1 className="text-xl font-bold mb-2">Phone Numbers</h1>
                     <button
-                        onClick={() => {
-                            navigator.clipboard.writeText("https://rag-chatbot-ochre.vercel.app/api/webhook/whatsapp");
-                            alert("Webhook URL copied to clipboard!");
-                        }}
-                        className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                        onClick={handleNewPhone}
+                        className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
                     >
-                        Copy
+                        + New Phone Number
                     </button>
+                </div>
+
+                <div className="p-2">
+                    {phoneGroups.map((group) => (
+                        <div
+                            key={group.phone_number}
+                            onClick={() => setSelectedPhoneNumber(group.phone_number)}
+                            className={`p-3 mb-2 rounded-lg cursor-pointer border transition-colors ${
+                                selectedPhoneNumber === group.phone_number
+                                    ? "bg-blue-100 border-blue-400"
+                                    : "bg-white border-gray-200 hover:bg-gray-50"
+                            }`}
+                        >
+                            <div className="font-mono font-semibold text-sm">{group.phone_number}</div>
+                            {group.intent && (
+                                <div className="text-xs text-gray-600 mt-1 line-clamp-1">
+                                    {group.intent}
+                                </div>
+                            )}
+                            <div className="flex gap-2 mt-2">
+                                <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded">
+                                    {group.files.length} files
+                                </span>
+                            </div>
+                        </div>
+                    ))}
+
+                    {phoneGroups.length === 0 && (
+                        <div className="text-center py-12 text-gray-500 text-sm">
+                            <p>No phone numbers yet.</p>
+                            <p>Click "+ New Phone Number" to start.</p>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            <div className="border rounded-lg p-6 bg-white mb-6">
-                <h2 className="text-lg font-semibold mb-4">Upload PDF</h2>
-
-                <div className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium mb-2">
-                            Select PDF File
-                        </label>
-                        <input
-                            type="file"
-                            accept=".pdf"
-                            onChange={handleFileSelect}
-                            className="block w-full text-sm text-gray-500
-                                file:mr-4 file:py-2 file:px-4
-                                file:rounded-md file:border-0
-                                file:text-sm file:font-semibold
-                                file:bg-blue-50 file:text-blue-700
-                                hover:file:bg-blue-100"
-                        />
-                        {selectedFile && (
-                            <p className="mt-2 text-sm text-gray-600">
-                                Selected: {selectedFile.name}
-                            </p>
-                        )}
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium mb-2">
-                            11za Auth Token <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                            type="text"
-                            value={authToken}
-                            onChange={(e) => setAuthToken(e.target.value)}
-                            placeholder="Your 11za authentication token"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                        <p className="mt-1 text-xs text-gray-500">
-                            Required: 11za WhatsApp API authentication token
+            {/* RIGHT PANEL - Edit Details */}
+            <div className="flex-1 overflow-y-auto">
+                <div className="p-6 max-w-4xl mx-auto">
+                    {/* Webhook Info */}
+                    <div className="border rounded-lg p-4 bg-blue-50 border-blue-200 mb-6">
+                        <h3 className="text-sm font-semibold text-blue-900 mb-2">11za Webhook Configuration</h3>
+                        <p className="text-xs text-blue-800 mb-2">
+                            Configure this webhook URL in your 11za WhatsApp settings:
                         </p>
+                        <div className="flex items-center gap-2 bg-white p-2 rounded border border-blue-300">
+                            <code className="text-xs font-mono text-blue-900 flex-1">
+                                https://rag-chatbot-ochre.vercel.app/api/webhook/whatsapp
+                            </code>
+                            <button
+                                onClick={() => {
+                                    navigator.clipboard.writeText("https://rag-chatbot-ochre.vercel.app/api/webhook/whatsapp");
+                                    alert("Webhook URL copied to clipboard!");
+                                }}
+                                className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                            >
+                                Copy
+                            </button>
+                        </div>
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-medium mb-2">
-                            11za Origin <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                            type="text"
-                            value={origin}
-                            onChange={(e) => setOrigin(e.target.value)}
-                            placeholder="https://example.com/"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                        <p className="mt-1 text-xs text-gray-500">
-                            Required: Origin website URL for 11za API
-                        </p>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium mb-2">
-                            WhatsApp Business Numbers (optional)
-                        </label>
-                        <input
-                            type="text"
-                            value={phoneNumbers}
-                            onChange={(e) => setPhoneNumbers(e.target.value)}
-                            placeholder="15558346206"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                        <p className="mt-1 text-xs text-gray-500">
-                            Enter WhatsApp Business numbers (TO numbers) separated by commas. These are the numbers that will receive messages and use these credentials to respond.
-                        </p>
-                    </div>
-
-                    <button
-                        onClick={handleUpload}
-                        disabled={uploading || !selectedFile}
-                        className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                    >
-                        {uploading ? "Processing..." : "Upload & Process"}
-                    </button>
-                </div>
-            </div>
-
-            <h2 className="text-lg font-semibold mb-4">Uploaded Files</h2>
-            <ul className="space-y-3">
-                {files.map((f) => {
-                    const count = f.chunk_count ?? 0;
-                    const isEditing = editingFileId === f.id;
-                    const mappings = fileMappings[f.id] || [];
-
-                    return (
-                        <li key={f.id} className="border rounded-lg bg-white">
-                            <div className="p-4 flex justify-between items-center">
-                                <div className="flex flex-col">
-                                    <span className="font-medium">{f.name}</span>
-                                    <span className="text-sm text-gray-500">{count} chunks</span>
-                                </div>
-                                <div className="flex gap-2">
+                    {(selectedPhoneNumber || isNewPhone) ? (
+                        <>
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-2xl font-bold">
+                                    {isNewPhone ? "New Phone Number" : `Edit: ${selectedPhoneNumber}`}
+                                </h2>
+                                {selectedPhoneNumber && (
                                     <button
-                                        className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded-md"
-                                        onClick={() => toggleEditMappings(f.id)}
+                                        onClick={() => deletePhoneNumber(selectedPhoneNumber)}
+                                        className="px-4 py-2 text-sm text-red-600 border border-red-600 rounded-md hover:bg-red-50"
                                     >
-                                        {isEditing ? "Close" : "Manage Numbers"}
+                                        Delete Phone Number
                                     </button>
-                                    <button
-                                        className="px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded-md"
-                                        onClick={() => deleteFile(f.id)}
-                                    >
-                                        Delete
-                                    </button>
-                                </div>
+                                )}
                             </div>
 
-                            {isEditing && (
-                                <div className="border-t p-4 bg-gray-50">
-                                    <h3 className="font-medium text-sm mb-3">WhatsApp Business Number Mappings</h3>
+                            {/* Edit Form */}
+                            <div className="space-y-6">
+                                {/* Phone Number */}
+                                <div>
+                                    <label className="block text-sm font-medium mb-2">
+                                        WhatsApp Business Number <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={editPhoneNumber}
+                                        onChange={(e) => setEditPhoneNumber(e.target.value)}
+                                        placeholder="15558346206"
+                                        disabled={!isNewPhone}
+                                        className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                                            !isNewPhone ? "bg-gray-100 cursor-not-allowed" : ""
+                                        }`}
+                                    />
+                                </div>
 
-                                    {mappings.length > 0 ? (
-                                        <ul className="space-y-2 mb-4">
-                                            {mappings.map((mapping) => (
-                                                <li
-                                                    key={mapping.id}
-                                                    className="flex justify-between items-center bg-white p-2 rounded border"
-                                                >
-                                                    <span className="text-sm font-mono">{mapping.phone_number}</span>
-                                                    <button
-                                                        className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 rounded"
-                                                        onClick={() => deletePhoneMapping(mapping.id, f.id)}
-                                                    >
-                                                        Remove
-                                                    </button>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    ) : (
-                                        <p className="text-sm text-gray-500 mb-4">No business numbers mapped yet.</p>
-                                    )}
-
+                                {/* Intent */}
+                                <div>
+                                    <label className="block text-sm font-medium mb-2">
+                                        Intent/Purpose
+                                    </label>
                                     <div className="flex gap-2">
                                         <input
                                             type="text"
-                                            value={newPhoneNumber}
-                                            onChange={(e) => setNewPhoneNumber(e.target.value)}
-                                            placeholder="15558346206"
-                                            className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            value={editIntent}
+                                            onChange={(e) => setEditIntent(e.target.value)}
+                                            placeholder="E.g., Booking chatbot for restaurant reservations"
+                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         />
                                         <button
-                                            onClick={() => addPhoneMapping(f.id)}
-                                            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                                            onClick={generateSystemPrompt}
+                                            disabled={generatingPrompt || !editIntent.trim() || !editPhoneNumber.trim()}
+                                            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm whitespace-nowrap"
                                         >
-                                            Add
+                                            {generatingPrompt ? "Generating..." : "Generate Prompt"}
+                                        </button>
+                                    </div>
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        Describe the chatbot's purpose. Click "Generate Prompt" to create a system prompt using AI.
+                                    </p>
+                                </div>
+
+                                {/* System Prompt - Editable */}
+                                {editSystemPrompt && (
+                                    <div>
+                                        <label className="block text-sm font-medium mb-2">
+                                            System Prompt (Editable)
+                                        </label>
+                                        <textarea
+                                            value={editSystemPrompt}
+                                            onChange={(e) => setEditSystemPrompt(e.target.value)}
+                                            rows={8}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                                            placeholder="System prompt for the chatbot..."
+                                        />
+                                        <p className="mt-1 text-xs text-gray-500">
+                                            Edit the system prompt to customize how the chatbot responds.
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* 11za Credentials */}
+                                <div className="border-t pt-6">
+                                    <h3 className="text-lg font-semibold mb-4">11za Credentials</h3>
+
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium mb-2">
+                                                Auth Token <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={editAuthToken}
+                                                onChange={(e) => setEditAuthToken(e.target.value)}
+                                                placeholder="Your 11za authentication token"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium mb-2">
+                                                Origin <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={editOrigin}
+                                                onChange={(e) => setEditOrigin(e.target.value)}
+                                                placeholder="https://example.com/"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            />
+                                        </div>
+
+                                        {/* Save Settings Button */}
+                                        {!isNewPhone && (
+                                            <button
+                                                onClick={savePhoneSettings}
+                                                disabled={savingSettings}
+                                                className="w-full px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
+                                            >
+                                                {savingSettings ? "Saving..." : "Save Settings (Intent, System Prompt, Credentials)"}
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* File Upload */}
+                                <div className="border-t pt-6">
+                                    <h3 className="text-lg font-semibold mb-4">Upload File</h3>
+
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium mb-2">
+                                                Select File (PDF or Image)
+                                            </label>
+                                            <input
+                                                type="file"
+                                                accept=".pdf,image/*"
+                                                onChange={handleFileSelect}
+                                                className="block w-full text-sm text-gray-500
+                                                    file:mr-4 file:py-2 file:px-4
+                                                    file:rounded-md file:border-0
+                                                    file:text-sm file:font-semibold
+                                                    file:bg-blue-50 file:text-blue-700
+                                                    hover:file:bg-blue-100"
+                                            />
+                                            {selectedFile && (
+                                                <p className="mt-2 text-sm text-gray-600">
+                                                    Selected: {selectedFile.name} ({selectedFile.type})
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        <button
+                                            onClick={handleUpload}
+                                            disabled={uploading || !selectedFile || !editPhoneNumber.trim() || !editAuthToken.trim() || !editOrigin.trim()}
+                                            className="w-full px-4 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-medium"
+                                        >
+                                            {uploading ? "Processing..." : "Upload & Process File"}
                                         </button>
                                     </div>
                                 </div>
-                            )}
-                        </li>
-                    );
-                })}
-            </ul>
+
+                                {/* Files List */}
+                                {selectedGroup && selectedGroup.files.length > 0 && (
+                                    <div className="border-t pt-6">
+                                        <h3 className="text-lg font-semibold mb-4">
+                                            Uploaded Files ({selectedGroup.files.length})
+                                        </h3>
+
+                                        <div className="space-y-2">
+                                            {selectedGroup.files.map((file) => (
+                                                <div
+                                                    key={file.id}
+                                                    className="flex justify-between items-center p-4 border rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
+                                                >
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-medium text-sm">{file.name}</span>
+                                                            <span className="text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded">
+                                                                {file.file_type}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-xs text-gray-500 mt-1">
+                                                            {file.chunk_count || 0} chunks • {new Date(file.created_at).toLocaleDateString()}
+                                                        </p>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => deleteFile(file.id)}
+                                                        className="px-3 py-1.5 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50"
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    ) : (
+                        <div className="flex items-center justify-center h-96 text-gray-500">
+                            <div className="text-center">
+                                <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                </svg>
+                                <p className="text-lg">Select a phone number from the left</p>
+                                <p className="text-sm mt-2">or click "+ New Phone Number" to create one</p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
         </main>
     );
 }

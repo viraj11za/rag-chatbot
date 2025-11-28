@@ -45,24 +45,35 @@ export async function generateAutoResponse(
 
         console.log(`Found ${fileIds.length} document(s) for business number ${toNumber}`);
 
-        // 1.5. Fetch file details including 11za credentials
-        // We'll use the first file's credentials for sending messages
-        const { data: fileData, error: fileError } = await supabase
-            .from("rag_files")
-            .select("auth_token, origin")
-            .in("id", fileIds)
+        // 1.5. Fetch phone mapping details including system prompt and credentials
+        const { data: phoneMapping, error: mappingError } = await supabase
+            .from("phone_document_mapping")
+            .select("system_prompt, intent, rag_files(auth_token, origin)")
+            .eq("phone_number", toNumber)
             .limit(1)
             .single();
 
-        if (fileError || !fileData) {
-            console.error("Error fetching file credentials:", fileError);
+        if (mappingError || !phoneMapping) {
+            console.error("Error fetching phone mapping:", mappingError);
             return {
                 success: false,
-                error: "Failed to fetch file credentials",
+                error: "Failed to fetch phone mapping details",
+            };
+        }
+
+        const fileData = Array.isArray(phoneMapping.rag_files)
+            ? phoneMapping.rag_files[0]
+            : phoneMapping.rag_files;
+
+        if (!fileData) {
+            return {
+                success: false,
+                error: "No file credentials found",
             };
         }
 
         const { auth_token, origin } = fileData;
+        const customSystemPrompt = phoneMapping.system_prompt;
 
         if (!auth_token || !origin) {
             console.error("File missing 11za credentials");
@@ -111,21 +122,24 @@ export async function generateAutoResponse(
                 content: m.content_text
             }));
 
-        // 5. Generate response using Groq
+        // 5. Generate response using Groq with dynamic system prompt
+        const defaultSystemPrompt =
+            `You are a helpful WhatsApp assistant. Your ONLY job is to answer questions based strictly on the provided document context.\n\n` +
+            `STRICT RULES:\n` +
+            `- ONLY answer questions using information from the CONTEXT below\n` +
+            `- If the answer is not in the CONTEXT, say "I don't have that information in the document"\n` +
+            `- NEVER use your general knowledge or make assumptions beyond the document\n` +
+            `- NEVER offer to do tasks you cannot do (generate files, make calls, etc.)\n` +
+            `- Be concise and friendly - keep responses under 300 words\n` +
+            `- Use clear, simple language appropriate for WhatsApp chat\n` +
+            `- Format responses with line breaks for readability`;
+
+        const systemPrompt = customSystemPrompt || defaultSystemPrompt;
+
         const messages = [
             {
                 role: "system" as const,
-                content:
-                    `You are a helpful WhatsApp assistant. Your ONLY job is to answer questions based strictly on the provided document context.\n\n` +
-                    `STRICT RULES:\n` +
-                    `- ONLY answer questions using information from the CONTEXT below\n` +
-                    `- If the answer is not in the CONTEXT, say "I don't have that information in the document"\n` +
-                    `- NEVER use your general knowledge or make assumptions beyond the document\n` +
-                    `- NEVER offer to do tasks you cannot do (generate files, make calls, etc.)\n` +
-                    `- Be concise and friendly - keep responses under 300 words\n` +
-                    `- Use clear, simple language appropriate for WhatsApp chat\n` +
-                    `- Format responses with line breaks for readability\n\n` +
-                    `CONTEXT:\n${contextText || "No relevant context found in the documents."}`
+                content: `${systemPrompt}\n\nCONTEXT:\n${contextText || "No relevant context found in the documents."}`
             },
             ...history.slice(-5), // Include last 5 messages for context
             { role: "user" as const, content: messageText }
